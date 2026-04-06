@@ -30,7 +30,7 @@ def _next_power_of_2(n: int) -> int:
     return p
 
 
-def generate_sign_flips(dim: int, seed: int = 42, device: torch.device | None = None) -> torch.Tensor:
+def generate_sign_flips(dim: int, seed: int = 42, device: torch.device | str | None = None) -> torch.Tensor:
     """Generate deterministic random sign flips for WHT.
 
     Generates sign flips for the next power-of-2 dimension >= dim.

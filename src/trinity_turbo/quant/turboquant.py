@@ -62,7 +62,7 @@ class QuantState:
         bits: int,
         head_dim: int,
         num_outliers: int,
-        device: torch.device,
+        device: torch.device | str = "cpu",
         seed: int = 42,
     ) -> QuantState:
         normal_dim = head_dim - num_outliers
