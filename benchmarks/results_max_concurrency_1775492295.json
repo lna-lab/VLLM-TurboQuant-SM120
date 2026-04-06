@@ -1,0 +1,52 @@
+{
+  "hardware": "4x RTX PRO 6000 Blackwell (96GB, SM120)",
+  "model": "/media/tonoken/CT4000/Models/arcee-ai/Trinity-Large-Thinking-W4A16",
+  "plugin": "trinity-turbo Phase 1",
+  "kv_cache_dtype": "fp8_e4m3",
+  "max_tokens": 512,
+  "gpu_memory_utilization": 0.95,
+  "max_sustainable_concurrency": 64,
+  "peak_throughput_tok_s": 2314.6,
+  "results": [
+    {
+      "concurrency": 16,
+      "status": "ok",
+      "wall_time_s": 8.39,
+      "total_tokens": 8192,
+      "throughput_tok_s": 976.6,
+      "per_request_avg_tok_s": 61.1,
+      "per_request_min_tok_s": 61.0,
+      "per_request_max_tok_s": 61.3
+    },
+    {
+      "concurrency": 32,
+      "status": "ok",
+      "wall_time_s": 9.36,
+      "total_tokens": 16384,
+      "throughput_tok_s": 1750.8,
+      "per_request_avg_tok_s": 54.7,
+      "per_request_min_tok_s": 54.7,
+      "per_request_max_tok_s": 55.0
+    },
+    {
+      "concurrency": 48,
+      "status": "ok",
+      "wall_time_s": 11.99,
+      "total_tokens": 24576,
+      "throughput_tok_s": 2049.4,
+      "per_request_avg_tok_s": 42.7,
+      "per_request_min_tok_s": 42.7,
+      "per_request_max_tok_s": 42.9
+    },
+    {
+      "concurrency": 64,
+      "status": "ok",
+      "wall_time_s": 14.16,
+      "total_tokens": 32768,
+      "throughput_tok_s": 2314.6,
+      "per_request_avg_tok_s": 36.2,
+      "per_request_min_tok_s": 36.2,
+      "per_request_max_tok_s": 36.6
+    }
+  ]
+}
