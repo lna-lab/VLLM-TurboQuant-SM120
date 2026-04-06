@@ -108,12 +108,13 @@ class TrinityTurboAttentionImpl(AttentionImpl["TritonAttentionMetadata"]):
         # Phase 1: Delegate to standard Triton attention for all layers.
         # This validates that the plugin registration and metadata flow works.
         # Compression will be added layer-by-layer once this path is stable.
-        from vllm.v1.attention.backends.triton_attn import unified_attention
+        from vllm.v1.attention.backends.triton_attn import (
+            triton_reshape_and_cache_flash,
+            unified_attention,
+        )
 
         # Update KV cache (standard path)
-        from vllm.v1.attention.backends.utils import reshape_and_cache
-
-        reshape_and_cache(key, value, kv_cache, attn_metadata.slot_mapping)
+        triton_reshape_and_cache_flash(key, value, kv_cache, attn_metadata.slot_mapping)
 
         # Run standard attention
         return unified_attention(

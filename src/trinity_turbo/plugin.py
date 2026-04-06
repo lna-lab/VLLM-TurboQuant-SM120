@@ -35,8 +35,10 @@ def register_trinity_turbo() -> None:
         register_backend,
     )
 
-    from trinity_turbo.backend.attention_backend import TrinityTurboAttentionBackend
-
-    register_backend(AttentionBackendEnum.CUSTOM, TrinityTurboAttentionBackend)
+    # register_backend expects a dotted string path, not a class object
+    register_backend(
+        AttentionBackendEnum.CUSTOM,
+        "trinity_turbo.backend.attention_backend.TrinityTurboAttentionBackend",
+    )
 
     logger.info("trinity-turbo: registered as AttentionBackendEnum.CUSTOM")

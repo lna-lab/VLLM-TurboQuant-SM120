@@ -1,0 +1,62 @@
+{
+  "label": "turbo_phase1",
+  "model": "/media/tonoken/CT4000/Models/arcee-ai/Trinity-Large-Thinking-W4A16",
+  "url": "http://localhost:8014/v1/chat/completions",
+  "max_tokens": 512,
+  "results": [
+    {
+      "concurrency": 1,
+      "wall_time_s": 3.49,
+      "total_tokens": 512,
+      "throughput_tok_s": 146.6,
+      "per_request_avg_tok_s": 146.6,
+      "per_request_min_tok_s": 146.6,
+      "per_request_max_tok_s": 146.6
+    },
+    {
+      "concurrency": 2,
+      "wall_time_s": 4.97,
+      "total_tokens": 1024,
+      "throughput_tok_s": 206.1,
+      "per_request_avg_tok_s": 103.2,
+      "per_request_min_tok_s": 103.0,
+      "per_request_max_tok_s": 103.3
+    },
+    {
+      "concurrency": 4,
+      "wall_time_s": 5.23,
+      "total_tokens": 2048,
+      "throughput_tok_s": 391.6,
+      "per_request_avg_tok_s": 98.0,
+      "per_request_min_tok_s": 97.9,
+      "per_request_max_tok_s": 98.3
+    },
+    {
+      "concurrency": 8,
+      "wall_time_s": 6.36,
+      "total_tokens": 4096,
+      "throughput_tok_s": 644.1,
+      "per_request_avg_tok_s": 80.6,
+      "per_request_min_tok_s": 80.5,
+      "per_request_max_tok_s": 80.8
+    },
+    {
+      "concurrency": 12,
+      "wall_time_s": 7.56,
+      "total_tokens": 6144,
+      "throughput_tok_s": 813.2,
+      "per_request_avg_tok_s": 67.8,
+      "per_request_min_tok_s": 67.8,
+      "per_request_max_tok_s": 68.0
+    },
+    {
+      "concurrency": 16,
+      "wall_time_s": 8.42,
+      "total_tokens": 8192,
+      "throughput_tok_s": 973.3,
+      "per_request_avg_tok_s": 60.9,
+      "per_request_min_tok_s": 60.8,
+      "per_request_max_tok_s": 61.1
+    }
+  ]
+}
