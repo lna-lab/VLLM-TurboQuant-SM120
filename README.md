@@ -3,6 +3,12 @@
 Built for a very specific goal: buying more concurrency on RTX PRO 6000 Blackwell by compressing KV cache intelligently.
 Layer-aware KV cache compression for Trinity-Large-Thinking on vLLM, optimized for SM120 Blackwell GPUs.
 
+## Who is this for?
+
+This project is for people pushing RTX PRO 6000 Blackwell to the edge with large long-context models.
+If your goal is to raise `-c`, fit more concurrent sessions, and delay OOM by compressing KV cache intelligently, this repository is for you.
+It is niche by design, but the need is real.
+
 ## What It Does
 
 A vLLM plugin that compresses the KV cache of Trinity-Large-Thinking (398B MoE) using architecture-aware TurboQuant quantization:
