@@ -4,9 +4,22 @@ TurboQuant 4-bit KV cache compression for vLLM, targeting long-context MoE model
 
 ## Results
 
+**+7.9% throughput at 16 concurrent requests, while reducing KV cache VRAM by 37.5%.**
+
 **Model:** Trinity-Large-Thinking-W4A16 (398B MoE, TP=4)
 **Hardware:** 4x NVIDIA RTX PRO 6000 Blackwell (96 GB each)
 **Context:** 256K tokens, CUDA graphs enabled
+
+### VRAM Savings
+
+For the same number of cached tokens, TQ4 uses **37.5% less VRAM** than FP8:
+
+| Metric | FP8 (128 bytes/head) | TQ4 (80 bytes/head) | Savings |
+|:-------|:--------------------:|:--------------------:|:-------:|
+| Bytes per token per KV head | 128 | 80 | **37.5%** |
+| VRAM for 1.28M tokens | 36.6 GiB | 22.8 GiB | **13.8 GiB freed** |
+
+The freed VRAM can serve more concurrent requests, or host additional models (e.g. a vision-language model alongside the main LLM).
 
 ### Throughput (128 output tokens)
 
