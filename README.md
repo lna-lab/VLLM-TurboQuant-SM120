@@ -1,9 +1,6 @@
 # VLLM-TurboQuant-SM120
 
-VLLM-TurboQuant-SM120 is a layer-aware KV cache compression plugin for Trinity-Large-Thinking on vLLM.
-It is optimized for SM120 Blackwell GPUs and applies TurboQuant only where compression matters most.
-Instead of quantizing everything, it preserves sliding-window layers and compresses global-attention layers for efficient long-context inference.
-
+Built for a very specific goal: buying more concurrency on RTX PRO 6000 Blackwell by compressing KV cache intelligently.
 Layer-aware KV cache compression for Trinity-Large-Thinking on vLLM, optimized for SM120 Blackwell GPUs.
 
 ## What It Does
