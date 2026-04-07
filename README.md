@@ -1,165 +1,155 @@
-# ⚡ VLLM-TurboQuant-SM120
+# VLLM-TurboQuant-SM120
 
-> **Built for a very specific goal: buying more concurrency on RTX PRO 6000 Blackwell by compressing KV cache intelligently.**
+TurboQuant 4-bit KV cache compression for vLLM, targeting long-context MoE models on Blackwell GPUs.
 
-Layer-aware KV cache compression for Trinity-Large-Thinking on vLLM, optimized for SM120 Blackwell GPUs.
+## Results
 
----
-
-## 🎯 Who Is This For?
-
-This project is for people pushing RTX PRO 6000 Blackwell to the edge with large long-context models.
-If your goal is to raise `-c`, fit more concurrent sessions, and delay OOM by compressing KV cache intelligently, this repository is for you.
-It is niche by design, but the need is real.
-
----
-
-## 🔬 What It Does
-
-A vLLM plugin that compresses the KV cache of Trinity-Large-Thinking (398B MoE) using **TurboQuant 3-bit quantization**:
-
-- 🔄 **45 sliding window layers** → passthrough (bounded at 4096 tokens)
-- 🗜️ **15 global attention layers** → 3-bit TurboQuant compression
-- 📐 **128 → 64 bytes per KV head** — 2× memory reduction per page
-- 🧠 **Walsh-Hadamard rotation** — distributes quantization error evenly across dimensions
-- 💎 **Outlier preservation** — 8 critical channels kept at full bf16 precision
-
-This exploits Trinity's 3:1 sliding:global attention pattern to achieve significant memory reduction where it matters, without touching the layers that don't need it.
-
----
-
-## 📊 Benchmark Results
-
-**Hardware:** 4× NVIDIA RTX PRO 6000 Blackwell (96 GB each)
 **Model:** Trinity-Large-Thinking-W4A16 (398B MoE, TP=4)
-**Context:** 256K tokens max, eager mode
+**Hardware:** 4x NVIDIA RTX PRO 6000 Blackwell (96 GB each)
+**Context:** 256K tokens, CUDA graphs enabled
 
-### 🚀 Maximum Concurrency (256K context)
+### Throughput (128 output tokens)
 
-```
-┌───────────────────┬──────────────────┬─────────────┐
-│ Configuration     │ Max Parallel @   │ KV Cache    │
-│                   │ 256K tokens      │ Tokens      │
-├───────────────────┼──────────────────┼─────────────┤
-│ ❌ FP8 baseline   │       18x        │  ~1.3M      │
-│ ⚡ TurboQuant 3b  │       35x        │   2.6M      │
-├───────────────────┼──────────────────┼─────────────┤
-│ 📈 Improvement    │     1.94×        │   2.01×     │
-└───────────────────┴──────────────────┴─────────────┘
-```
+| Concurrency | FP8 Baseline (tok/s) | TQ4 (tok/s) | TQ4/FP8 |
+|:-----------:|:--------------------:|:------------:|:--------:|
+| 1           | 138.3                | 104.7        | 76%      |
+| 4           | 393.6                | 339.0        | 86%      |
+| 8           | 674.3                | 659.9        | 98%      |
+| 16          | 1146.3               | **1236.8**   | **108%** |
 
-### ⏱️ Throughput (512 output tokens, 256K context window)
+At 16 concurrent requests, TQ4 **surpasses** FP8 throughput while using 1.6x less KV cache memory.
 
-```
-┌─────────────┬──────────────┬──────────────────┐
-│ Parallelism │ Per-request  │ Aggregate        │
-│             │ tok/s        │ tok/s            │
-├─────────────┼──────────────┼──────────────────┤
-│  1 request  │     8.2      │        8.2       │
-│  8 parallel │     8.2      │       65.5       │
-│ 16 parallel │     8.1      │      129.1       │
-│ 32 parallel │     8.1      │      259.2       │
-├─────────────┼──────────────┼──────────────────┤
-│ 📈 Scaling  │   perfect linear (no degradation)│
-└─────────────┴──────────────┴──────────────────┘
-```
+### KV Cache Capacity
 
-### ✅ Quality Verification
+| Config       | KV Cache Tokens | Max Parallel @ 256K |
+|:------------:|:---------------:|:-------------------:|
+| FP8 baseline | 1,279,232       | ~18x                |
+| TQ4 4-bit    | 2,040,448       | ~28x                |
+| Improvement  | **1.60x**       | **1.56x**           |
 
-```
-┌─────────────────────────┬──────────┐
-│ Metric                  │ Result   │
-├─────────────────────────┼──────────┤
-│ 3-bit cosine similarity │ > 0.95   │
-│ Outlier preservation    │ bit-exact│
-│ Arithmetic reasoning    │ ✅ correct│
-│ Code generation         │ ✅ correct│
-│ Logical reasoning       │ ✅ correct│
-└─────────────────────────┴──────────┘
-```
+### Quality
 
----
+- Cosine similarity vs reference: 0.9999
+- Outlier channels: bit-exact preservation
+- 67 tests passing (unit + integration + end-to-end)
 
-## 🏗️ Architecture
+## How It Works
+
+TurboQuant compresses KV cache vectors from 128 bytes (FP8) to 80 bytes (TQ4) per head per token:
+
+1. **Outlier preservation** — 8 highest-variance channels kept at bf16 (16 bytes)
+2. **Walsh-Hadamard rotation** — distributes remaining 120 channels into near-Gaussian distribution
+3. **Lloyd-Max 4-bit quantization** — optimal scalar quantization (16 centroids)
+4. **Compact packing** — 120 channels at 4 bits = 60 bytes, plus 2-byte fp16 norm
+
+Slot layout (80 bytes per token per KV head):
 
 ```
-New K/V tokens
-  │
-  ├─ 🗜️ TurboQuant compress (outlier split → L2 norm → WHT → Lloyd-Max 3-bit → pack)
-  ├─ 📦 Scatter to uint8 KV cache (64 bytes/slot instead of 128)
-  │
-Cache read (per attention layer)
-  │
-  ├─ 📖 Decompress all blocks → bf16 temporary
-  ├─ 🔄 Pre-rotate Q via Walsh-Hadamard Transform
-  ├─ ⚡ Standard Triton paged attention
-  └─ 🔄 Inverse-rotate output (undo V rotation)
+[0,16)  outliers bf16    16 bytes
+[16,76) packed 4-bit     60 bytes
+[76,78) L2 norm fp16      2 bytes
+[78,80) padding            2 bytes
 ```
 
-**Slot layout (64 bytes per token per KV head):**
+At decode time, decompression happens **inside the attention kernel** — each tile loads compressed uint8 slots and reconstructs bf16 K/V vectors in registers before `tl.dot`. No intermediate buffers, no extra HBM bandwidth.
 
-```
-┌─────────────────┬───────────────────────┬──────┬─────┐
-│ outliers (bf16)  │ packed indices (uint8) │ norm │ pad │
-│ 8ch × 2B = 16B  │ 120ch × 3bit = 45B    │ 2B   │ 1B  │
-└─────────────────┴───────────────────────┴──────┴─────┘
-```
+## Architecture
 
----
+The plugin consists of three kernel layers:
 
-## 🚀 Quick Start
+| Component | Implementation | Role |
+|:----------|:--------------|:-----|
+| KV cache write | CUDA native (`cuda_compress.cu`) | Fused WHT + quantize + pack + scatter. 1 kernel per (token, head). |
+| Attention | Triton (`triton_tq4_unified_attention.py`) | Fork of vLLM's `kernel_unified_attention_2d` with in-tile TQ4 decompress. |
+| Q/output rotation | CUDA native (`cuda_rotation.cu`) | Fused WHT butterfly with `__syncthreads()`. 1 kernel per vector. |
+
+All three are CUDA graph compatible.
+
+### Why CUDA native for WHT?
+
+The Walsh-Hadamard butterfly requires cross-element synchronization at each of 7 steps (128 elements = 4 warps). Triton lacks warp-level barriers (`__syncthreads()`), causing data races in cross-warp butterfly steps. CUDA native kernels solve this cleanly.
+
+## Quick Start
 
 ```bash
 pip install -e .
 
 TRINITY_TURBO_ENABLED=1 \
-TRINITY_TURBO_BITS=3 \
 vllm serve /path/to/Trinity-Large-Thinking-W4A16 \
     --tensor-parallel-size 4 \
     --attention-backend CUSTOM \
     --kv-cache-dtype fp8_e4m3 \
     --max-model-len 262144 \
-    --enforce-eager \
-    --gpu-memory-utilization 0.95
+    --gpu-memory-utilization 0.92
 ```
 
----
+### Configuration
 
-## 📋 Requirements
+All settings via environment variables with `TRINITY_TURBO_` prefix:
+
+| Variable | Default | Description |
+|:---------|:--------|:------------|
+| `TRINITY_TURBO_ENABLED` | `1` | Master switch |
+| `TRINITY_TURBO_BITS` | `4` | Quantization bits (2, 3, or 4) |
+| `TRINITY_TURBO_NUM_OUTLIER_CHANNELS` | `8` | Channels preserved at bf16 |
+
+## Requirements
 
 - vLLM >= 0.19.0
 - Python >= 3.12
-- NVIDIA GPU (SM120 Blackwell optimized, works on any CUDA GPU)
+- CUDA >= 12.8 (SM120 Blackwell optimized)
 - PyTorch >= 2.10
 - Triton >= 3.0
 
----
+## Project Structure
 
-## 🗺️ Roadmap
+```
+src/trinity_turbo/
+  plugin.py                         vLLM plugin entry point
+  config.py                         Environment-based configuration
+  backend/
+    attention_backend.py             Custom attention backend (KV cache shape)
+    attention_impl.py                Phase 3 attention forward pass
+    cache_spec.py                    Compressed page size specs
+  kernels/
+    cuda_compress.cu                 CUDA fused compress + scatter
+    cuda_rotation.cu                 CUDA fused WHT rotation
+    triton_tq4_unified_attention.py  TQ4 tiled decode attention
+    triton_compress.py               PyTorch compress (reference)
+    fast_wht.py                      Fast WHT (double-buffer)
+  quant/
+    turboquant.py                    TurboQuant core (compress/decompress)
+    codebook.py                      Lloyd-Max codebook generation
+    packing.py                       Bit-packing utilities
+    rotation.py                      WHT rotation (reference)
+tests/
+  test_tq4_unified_attn.py          Phase 3 kernel tests
+  test_turboquant.py                Core quantization tests
+  ...                               67 tests total
+benchmarks/
+  bench_quick.py                    Throughput benchmark
+  profile_overhead.py               Per-component profiling
+```
 
-- [x] **Phase 1** — Plugin skeleton + TurboQuant core (51 tests passing)
-- [x] **Phase 2** — Compressed KV cache + Triton decompress kernel (61 tests, 35× concurrency)
-- [ ] **Phase 2+** — Fused Triton attention kernel (decompress-in-tile, CUDA graph support)
-- [ ] **Phase 3** — cuTile SM120-native kernels
-- [ ] **Phase 4** — Gate-based eviction for even higher compression
-- [ ] **Phase 5** — Cross-layer KV reconstruction
+## Roadmap
 
----
+- [x] Phase 1 — TurboQuant core + vLLM plugin skeleton
+- [x] Phase 2 — Compressed KV cache + Triton decompress (35x concurrency)
+- [x] Phase 2+ — Fused Triton decode attention + CUDA graph
+- [x] Phase 3 — Tiled unified attention + CUDA native compress/rotate (104.7 tok/s)
+- [ ] Phase 4 — WHT as matrix-vector multiply (full Triton, no CUDA native)
+- [ ] Phase 5 — Gate-based eviction + cross-layer reconstruction
 
-## 🤝 Contributing
+## References
 
-Ideas, benchmarks, and PRs are welcome! This is a niche project born out of real need — if you're running into the same walls with long-context MoE models on Blackwell, let's build together.
+- [TurboQuant: Extreme KV Cache Quantization (ICLR 2026)](https://arxiv.org/abs/2504.19874)
+- [vLLM](https://github.com/vllm-project/vllm)
+- [mitkox/vllm-turboquant](https://github.com/mitkox/vllm-turboquant)
 
-- 🐛 **Found a bug?** Open an issue
-- 💡 **Have an idea?** Start a discussion
-- 🔧 **Want to hack?** Check the roadmap above — Phase 2+ is where the action is
-
----
-
-## 📜 License
+## License
 
 Apache 2.0
 
 ---
 
-*Built with ❤️ at [Lna-Lab](https://github.com/lna-lab) — a seaside personal lab where AI and humans navigate the future together.*
+Built at [Lna-Lab](https://github.com/lna-lab).

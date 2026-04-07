@@ -29,7 +29,13 @@ import torch
 
 from trinity_turbo.quant.codebook import get_codebook_tensors
 from trinity_turbo.quant.packing import pack_indices, packed_size, unpack_indices
-from trinity_turbo.quant.rotation import apply_inverse_rotation, apply_rotation, generate_sign_flips
+from trinity_turbo.quant.rotation import apply_inverse_rotation, generate_sign_flips
+
+# Use fast WHT (double-buffer, fewer allocations) for compress/decompress
+try:
+    from trinity_turbo.kernels.fast_wht import apply_rotation_fast as apply_rotation
+except ImportError:
+    from trinity_turbo.quant.rotation import apply_rotation
 
 
 @dataclass
