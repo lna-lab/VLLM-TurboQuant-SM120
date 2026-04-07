@@ -12,10 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def register_trinity_turbo() -> None:
-    """Entry point called by vLLM's plugin loader.
-
-    Registers TrinityTurboAttentionBackend as CUSTOM backend.
-    """
+    """Entry point called by vLLM's plugin loader."""
     from trinity_turbo.config import TrinityTurboConfig, set_global_config
     from trinity_turbo.features import FeatureFlags
 
@@ -35,71 +32,62 @@ def register_trinity_turbo() -> None:
         register_backend,
     )
 
-    # register_backend expects a dotted string path, not a class object
     register_backend(
         AttentionBackendEnum.CUSTOM,
         "trinity_turbo.backend.attention_backend.TrinityTurboAttentionBackend",
     )
 
-    # Monkey-patch Attention.get_kv_cache_spec to return compressed spec
-    # for global attention layers (non-sliding-window)
     _patch_kv_cache_spec(config)
-
     logger.info("trinity-turbo: registered as AttentionBackendEnum.CUSTOM")
 
 
 def _patch_kv_cache_spec(config: "TrinityTurboConfig") -> None:
-    """Patch Attention.get_kv_cache_spec to report compressed page sizes
-    for global attention layers.
+    """Patch Attention.get_kv_cache_spec to report head_size=SLOT_BYTES.
 
-    This causes vLLM's memory allocator to allocate more blocks for
-    global attention layers, enabling higher concurrent request counts.
+    This makes real_page_size_bytes agree with get_kv_cache_shape's last dim.
+    Uses STANDARD vLLM spec classes (no custom subclasses) so the KV cache
+    manager recognizes them without KeyError.
     """
-    from trinity_turbo.backend.cache_spec import CompressedFullAttentionSpec
-    from trinity_turbo.quant.turboquant import QuantState
+    from trinity_turbo.kernels.triton_compress import SLOT_BYTES
 
     from vllm.model_executor.layers.attention.attention import Attention
-
-    # Calculate slot_bytes for the configured bit width
-    raw_slot_bytes = QuantState.create(
-        bits=config.bits,
-        head_dim=128,  # Trinity's head_dim
-        num_outliers=config.num_outlier_channels,
-        device="cpu",
-    ).slot_bytes
-    # Pad to power of 2 for vLLM page alignment
-    slot_bytes = 1
-    while slot_bytes < raw_slot_bytes:
-        slot_bytes <<= 1
+    from vllm.v1.kv_cache_interface import FullAttentionSpec, SlidingWindowSpec
 
     original_get_spec = Attention.get_kv_cache_spec
 
     def patched_get_kv_cache_spec(self, vllm_config):
         spec = original_get_spec(self, vllm_config)
 
-        # Only compress FullAttentionSpec (global layers)
-        # SlidingWindowSpec (local layers) pass through unchanged
-        from vllm.v1.kv_cache_interface import FullAttentionSpec
-        if isinstance(spec, FullAttentionSpec) and not isinstance(spec, CompressedFullAttentionSpec):
-            compressed = CompressedFullAttentionSpec(
-                block_size=spec.block_size,
-                num_kv_heads=spec.num_kv_heads,
-                head_size=spec.head_size,
-                dtype=spec.dtype,
-                sliding_window=spec.sliding_window,
-                slot_bytes_per_head=slot_bytes,
-            )
-            logger.debug(
-                "trinity-turbo: compressed spec for layer: %d bytes/page → %d bytes/page (%.1fx)",
-                spec.real_page_size_bytes,
-                compressed.real_page_size_bytes,
-                spec.real_page_size_bytes / compressed.real_page_size_bytes,
-            )
-            return compressed
+        # Replace head_size with SLOT_BYTES so that
+        # real_page_size_bytes = 2 × bs × heads × SLOT_BYTES × dtype_size
+        # matches get_kv_cache_shape's last dim exactly.
+
+        if isinstance(spec, SlidingWindowSpec):
+            if spec.head_size != SLOT_BYTES:
+                spec = SlidingWindowSpec(
+                    block_size=spec.block_size,
+                    num_kv_heads=spec.num_kv_heads,
+                    head_size=SLOT_BYTES,
+                    dtype=spec.dtype,
+                    sliding_window=spec.sliding_window,
+                )
+            return spec
+
+        if isinstance(spec, FullAttentionSpec):
+            if spec.head_size != SLOT_BYTES:
+                spec = FullAttentionSpec(
+                    block_size=spec.block_size,
+                    num_kv_heads=spec.num_kv_heads,
+                    head_size=SLOT_BYTES,
+                    dtype=spec.dtype,
+                    sliding_window=spec.sliding_window,
+                )
+            return spec
+
         return spec
 
     Attention.get_kv_cache_spec = patched_get_kv_cache_spec
     logger.info(
-        "trinity-turbo: patched get_kv_cache_spec (slot_bytes=%d, %.1fx vs FP8)",
-        slot_bytes, 128 / slot_bytes,
+        "trinity-turbo: patched get_kv_cache_spec (head_size→%d, %.1fx vs FP8)",
+        SLOT_BYTES, 128 / SLOT_BYTES,
     )

@@ -20,18 +20,13 @@ from dataclasses import dataclass
 
 import torch
 
-from vllm.v1.kv_cache_interface import FullAttentionSpec
+from vllm.v1.kv_cache_interface import FullAttentionSpec, SlidingWindowSpec
 
 
-@dataclass(frozen=True, kw_only=True)
-class CompressedFullAttentionSpec(FullAttentionSpec):
-    """FullAttentionSpec that reports compressed page size.
+class _CompressedPageMixin:
+    """Shared real_page_size_bytes for compressed specs."""
 
-    The actual KV cache tensor uses uint8 dtype with slot_bytes per head,
-    instead of head_size elements at the original dtype.
-    """
-
-    slot_bytes_per_head: int = 64  # 3-bit TurboQuant: 16(outlier) + 45(packed) + 2(norm) + 1(pad)
+    slot_bytes_per_head: int
 
     @property
     def real_page_size_bytes(self) -> int:
@@ -42,3 +37,17 @@ class CompressedFullAttentionSpec(FullAttentionSpec):
             * self.num_kv_heads
             * self.slot_bytes_per_head
         )
+
+
+@dataclass(frozen=True, kw_only=True)
+class CompressedFullAttentionSpec(_CompressedPageMixin, FullAttentionSpec):
+    """FullAttentionSpec with compressed page size."""
+
+    slot_bytes_per_head: int = 64
+
+
+@dataclass(frozen=True, kw_only=True)
+class CompressedSlidingWindowSpec(_CompressedPageMixin, SlidingWindowSpec):
+    """SlidingWindowSpec with compressed page size."""
+
+    slot_bytes_per_head: int = 64

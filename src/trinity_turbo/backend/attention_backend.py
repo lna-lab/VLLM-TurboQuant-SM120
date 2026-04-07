@@ -1,10 +1,12 @@
 """TrinityTurbo attention backend for vLLM.
 
-Phase 2: Uses compressed KV cache for global attention layers.
-Reports smaller page sizes to vLLM → more blocks allocated → higher concurrency.
+Phase 2: Compressed uint8 KV cache (64 bytes/head instead of 128).
+All layers use compressed format — sliding window included.
 
-The KV cache shape uses uint8 with slot_bytes per head (63 bytes for 3-bit)
-instead of head_size elements at FP8 (128 bytes).
+The three pieces that must agree ("三位一体"):
+  1. cache_spec.real_page_size_bytes  → how much memory vLLM reserves per page
+  2. get_kv_cache_shape()             → actual tensor dimensions
+  3. do_kv_cache_update() / forward() → what gets written / read
 """
 
 from __future__ import annotations
@@ -12,9 +14,9 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
-import torch
-
 from vllm.v1.attention.backends.triton_attn import TritonAttentionBackend
+
+from trinity_turbo.kernels.triton_compress import SLOT_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +24,9 @@ logger = logging.getLogger(__name__)
 class TrinityTurboAttentionBackend(TritonAttentionBackend):
     """Layer-aware KV cache compression backend.
 
-    Phase 2: Inherits TritonAttentionBackend but overrides KV cache shape
-    to use compressed format. Compression happens in TrinityTurboAttentionImpl.
+    Phase 2: last cache dimension is SLOT_BYTES (64) instead of head_size (128).
+    The tensor dtype stays fp8/uint8 (1 byte per element), so each head uses
+    64 bytes instead of 128 → 2× memory reduction per page.
     """
 
     supported_kv_cache_dtypes: ClassVar[list[str]] = [
@@ -47,7 +50,6 @@ class TrinityTurboAttentionBackend(TritonAttentionBackend):
         head_size: int,
         cache_dtype_str: str = "auto",
     ) -> tuple[int, ...]:
-        # Use standard Triton cache layout for Phase 2.
-        # Compression will be applied inside forward() via
-        # decompress-all before standard attention.
-        return (num_blocks, 2, block_size, num_kv_heads, head_size)
+        # Phase 2: compressed slot layout (64 bytes per head per token)
+        # instead of head_size (128 bytes with fp8).
+        return (num_blocks, 2, block_size, num_kv_heads, SLOT_BYTES)

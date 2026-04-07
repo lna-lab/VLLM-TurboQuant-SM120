@@ -46,9 +46,11 @@ def generate_sign_flips(dim: int, seed: int = 42, device: torch.device | str | N
         where padded_dim = next_power_of_2(dim).
     """
     padded_dim = _next_power_of_2(dim)
-    gen = torch.Generator()
+    # Always generate on CPU (deterministic), then move to target device.
+    # Avoids "Expected 'cuda' device type for generator" under vLLM CUDA context.
+    gen = torch.Generator(device="cpu")
     gen.manual_seed(seed)
-    signs = torch.randint(0, 2, (padded_dim,), generator=gen, dtype=torch.float32)
+    signs = torch.randint(0, 2, (padded_dim,), generator=gen, dtype=torch.float32, device="cpu")
     signs = signs * 2.0 - 1.0  # {0, 1} -> {-1, +1}
     if device is not None:
         signs = signs.to(device)
