@@ -16,7 +16,7 @@ from typing import ClassVar
 
 from vllm.v1.attention.backends.triton_attn import TritonAttentionBackend
 
-from trinity_turbo.kernels.triton_compress import SLOT_BYTES
+from trinity_turbo.kernels.triton_compress import SLOT_BYTES  # 80 bytes for 4-bit
 
 logger = logging.getLogger(__name__)
 

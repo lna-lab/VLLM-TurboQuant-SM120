@@ -18,11 +18,13 @@ import triton.language as tl
 
 from trinity_turbo.quant.turboquant import CompressedKV, QuantState, decompress
 
-SLOT_BYTES = 64
+from trinity_turbo.kernels.triton_compress import (
+    NORM_OFFSET,
+    PACKED_BYTES,
+    PACKED_OFFSET,
+    SLOT_BYTES,
+)
 OUTLIER_BYTES = 16
-PACKED_OFFSET = 16
-PACKED_BYTES_3BIT = 45
-NORM_OFFSET = 61
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +125,7 @@ def _unpack_dequant_3bit_kernel(
 def decompress_from_slot(
     slot: torch.Tensor,
     state: QuantState,
+    out: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Decompress packed uint8 slots to bf16 KV vectors.
 
@@ -155,7 +158,7 @@ def decompress_from_slot(
         .view(torch.bfloat16)           # [nh, 8]
     )
     packed = (
-        flat_slot[:, PACKED_OFFSET:PACKED_OFFSET + PACKED_BYTES_3BIT]
+        flat_slot[:, PACKED_OFFSET:PACKED_OFFSET + PACKED_BYTES]
         .contiguous()                    # [nh, 45] uint8
     )
     norm_fp16 = (
@@ -167,24 +170,43 @@ def decompress_from_slot(
 
     # ── Triton: unpack + dequant ──────────────────────────────
     block_d = 128  # next-pow2 of normal_dim=120
+
+    if out is not None:
+        # In-place path: write directly to caller's buffer (no allocation)
+        # out shape: [nh, head_dim]
+        # Triton kernel writes to a contiguous normal_buf with block_d columns
+        # We need a temporary view — but normal_dim=120 < block_d=128,
+        # so we use the tail of `out` as scratch (head_dim=128 >= block_d).
+        normal_buf = out[:, state.num_outliers:]  # [nh, 120] — NOT contiguous if stride mismatch
+        # Triton kernel needs [nh, block_d=128] contiguous. Since head_dim - num_outliers = 120 < 128,
+        # we still need a small scratch. BUT we can avoid the huge allocation by processing in chunks.
+        # Simplest: use out's full row as scratch since head_dim == block_d == 128.
+        # Write normals to out[:, 0:block_d], then shift outliers in.
+        # Actually — just allocate normal_buf but reuse out for the final assembly.
+        normal_buf = torch.empty(nh, block_d, dtype=torch.bfloat16, device=device)
+
+        _unpack_dequant_3bit_kernel[(nh,)](
+            packed, state.centroids, norm_fp16, normal_buf,
+            1.0 / math.sqrt(state.normal_dim), nh,
+            NORMAL_DIM=state.normal_dim, BLOCK_D=block_d,
+            PACKED_BYTES=PACKED_BYTES,
+        )
+
+        out[:, :state.num_outliers] = outlier_bf16
+        out[:, state.num_outliers:] = normal_buf[:, :state.normal_dim]
+        return out.reshape(*batch_shape, state.head_dim)
+
+    # ── Allocating path (default) ─────────────────────────────
     normal_buf = torch.zeros(nh, block_d, dtype=torch.bfloat16, device=device)
 
     _unpack_dequant_3bit_kernel[(nh,)](
-        packed,
-        state.centroids,
-        norm_fp16,
-        normal_buf,
-        1.0 / math.sqrt(state.normal_dim),
-        nh,
-        NORMAL_DIM=state.normal_dim,
-        BLOCK_D=block_d,
-        PACKED_BYTES=PACKED_BYTES_3BIT,
+        packed, state.centroids, norm_fp16, normal_buf,
+        1.0 / math.sqrt(state.normal_dim), nh,
+        NORMAL_DIM=state.normal_dim, BLOCK_D=block_d,
+        PACKED_BYTES=PACKED_BYTES,
     )
 
-    # ── Reassemble full head_dim vector ───────────────────────
     output = torch.empty(nh, state.head_dim, dtype=torch.bfloat16, device=device)
-    # Current layout: outliers = first num_outliers channels,
-    # normals = remaining channels.  (TODO: calibration-based outlier selection)
     output[:, :state.num_outliers] = outlier_bf16
     output[:, state.num_outliers:] = normal_buf[:, :state.normal_dim]
 
@@ -201,7 +223,7 @@ def _decompress_pytorch(
     flat_slot = slot.reshape(nh, SLOT_BYTES)
 
     outlier_bf16 = flat_slot[:, :OUTLIER_BYTES].contiguous().view(torch.bfloat16)
-    packed = flat_slot[:, PACKED_OFFSET:PACKED_OFFSET + PACKED_BYTES_3BIT].contiguous()
+    packed = flat_slot[:, PACKED_OFFSET:PACKED_OFFSET + PACKED_BYTES].contiguous()
     norm_fp16 = flat_slot[:, NORM_OFFSET:NORM_OFFSET + 2].contiguous().view(torch.float16)
 
     compressed = CompressedKV(

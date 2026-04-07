@@ -10,7 +10,7 @@ from trinity_turbo.config import TrinityTurboConfig
 def test_default_config():
     config = TrinityTurboConfig()
     assert config.enabled is True
-    assert config.bits == 3
+    assert config.bits == 4
     assert config.num_outlier_channels == 8
     assert config.eviction_enabled is False
     assert config.crosslayer_mode == "off"

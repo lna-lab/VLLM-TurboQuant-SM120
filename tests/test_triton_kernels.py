@@ -115,12 +115,11 @@ def test_slot_byte_layout(device, head_dim, num_outliers):
     slot = compress_to_slot(x, state)
     flat = slot.reshape(SLOT_BYTES)
 
-    # Outlier region: 16 bytes of non-zero data (almost certainly)
-    # Packed region: 45 bytes
+    from trinity_turbo.kernels.triton_compress import NORM_OFFSET as NO
     # Norm region: 2 bytes of non-zero data
-    # Padding: 1 byte of zero
-    assert flat[63].item() == 0, "Padding byte should be zero"
-    assert flat[61:63].any(), "Norm bytes should be non-zero"
+    # Padding after norm
+    assert flat[NO:NO+2].any(), "Norm bytes should be non-zero"
+    assert flat[SLOT_BYTES - 1].item() == 0, "Last padding byte should be zero"
 
 
 # -- CPU fallback -----------------------------------------------------------

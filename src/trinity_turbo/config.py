@@ -18,7 +18,7 @@ class TrinityTurboConfig:
     enabled: bool = True
 
     # TurboQuant settings
-    bits: int = 3  # 2, 3, or 4
+    bits: int = 4  # 2, 3, or 4 (4-bit default: best fused kernel perf)
     num_outlier_channels: int = 8
 
     # Eviction settings (Phase 2)
