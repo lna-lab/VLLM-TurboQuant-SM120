@@ -1,36 +1,34 @@
 # VLLM-TurboQuant-SM120
 
-TurboQuant 4-bit KV cache compression for vLLM, targeting long-context MoE models on Blackwell GPUs.
+TurboQuant 4-bit KV cache compression for vLLM, targeting long-context MoE models on NVIDIA Blackwell (SM120) GPUs.
 
 ## Results
 
-**+7.9% throughput at 16 concurrent requests, while reducing KV cache VRAM by 37.5%.**
+**3x FP8 throughput at high concurrency. 37.5% less KV cache VRAM.**
 
 **Model:** Trinity-Large-Thinking-W4A16 (398B MoE, TP=4)
 **Hardware:** 4x NVIDIA RTX PRO 6000 Blackwell (96 GB each)
-**Context:** 256K tokens, CUDA graphs enabled
+**Context:** 256K tokens, CUDA graphs enabled, Triton 3.6
+
+### Throughput (128 output tokens)
+
+| Concurrency | FP8 Baseline | TQ4 Phase 4a | TQ4 / FP8 |
+|:-----------:|:------------:|:------------:|:---------:|
+| 1           | 138.3 tok/s  | 104.4 tok/s  | 76%       |
+| 8           | 674.3        | 635.5        | 94%       |
+| 16          | **1146.3** (FP8 max) | 1197.3 | **104%**  |
+| 32          | OOM          | 2477.0       | **216%**  |
+| 48          | OOM          | 2988.9       | **261%**  |
+| 64          | OOM          | **3432.4**   | **299%**  |
+
+FP8 tops out at 16 concurrent requests (KV cache OOM). TQ4's 1.6x memory compression allows 64+ concurrent requests, reaching **3x FP8 peak throughput**.
 
 ### VRAM Savings
-
-For the same number of cached tokens, TQ4 uses **37.5% less VRAM** than FP8:
 
 | Metric | FP8 (128 bytes/head) | TQ4 (80 bytes/head) | Savings |
 |:-------|:--------------------:|:--------------------:|:-------:|
 | Bytes per token per KV head | 128 | 80 | **37.5%** |
 | VRAM for 1.28M tokens | 36.6 GiB | 22.8 GiB | **13.8 GiB freed** |
-
-The freed VRAM can serve more concurrent requests, or host additional models (e.g. a vision-language model alongside the main LLM).
-
-### Throughput (128 output tokens)
-
-| Concurrency | FP8 Baseline (tok/s) | TQ4 (tok/s) | TQ4/FP8 |
-|:-----------:|:--------------------:|:------------:|:--------:|
-| 1           | 138.3                | 104.7        | 76%      |
-| 4           | 393.6                | 339.0        | 86%      |
-| 8           | 674.3                | 659.9        | 98%      |
-| 16          | 1146.3               | **1236.8**   | **108%** |
-
-At 16 concurrent requests, TQ4 **surpasses** FP8 throughput while using 1.6x less KV cache memory.
 
 ### KV Cache Capacity
 
@@ -44,7 +42,7 @@ At 16 concurrent requests, TQ4 **surpasses** FP8 throughput while using 1.6x les
 
 - Cosine similarity vs reference: 0.9999
 - Outlier channels: bit-exact preservation
-- 67 tests passing (unit + integration + end-to-end)
+- 67+ tests passing (unit + integration + end-to-end)
 
 ## How It Works
 
@@ -68,7 +66,7 @@ At decode time, decompression happens **inside the attention kernel** — each t
 
 ## Architecture
 
-The plugin consists of three kernel layers:
+Phase 4a hybrid: CUDA native kernels for compute, Triton for attention, bare CUDA graph (no torch.compile).
 
 | Component | Implementation | Role |
 |:----------|:--------------|:-----|
@@ -76,11 +74,25 @@ The plugin consists of three kernel layers:
 | Attention | Triton (`triton_tq4_unified_attention.py`) | Fork of vLLM's `kernel_unified_attention_2d` with in-tile TQ4 decompress. |
 | Q/output rotation | CUDA native (`cuda_rotation.cu`) | Fused WHT butterfly with `__syncthreads()`. 1 kernel per vector. |
 
-All three are CUDA graph compatible.
+All three are CUDA graph compatible on SM120 (Blackwell).
 
 ### Why CUDA native for WHT?
 
 The Walsh-Hadamard butterfly requires cross-element synchronization at each of 7 steps (128 elements = 4 warps). Triton lacks warp-level barriers (`__syncthreads()`), causing data races in cross-warp butterfly steps. CUDA native kernels solve this cleanly.
+
+We also evaluated [HadaCore](https://github.com/pytorch-labs/applied-ai/tree/main/kernels/cuda/inference/hadamard_transform) (Meta's Tensor Core accelerated WHT). It builds and runs correctly on SM120, but at head_dim=128 the simple butterfly WHT is 3.5x faster. HadaCore's Tensor Core overhead only pays off at dim >= 2048.
+
+### Why no torch.compile?
+
+Phase 4a disables `torch.compile` (`-cc.mode none`) and uses bare CUDA graph (`-cc.cudagraph_mode full`). This is intentional:
+
+- torch.compile's inductor generates cuBLAS calls that are incompatible with SM120
+- Removing inductor overhead **increased** throughput by 17% (2927 → 3432 tok/s)
+- CUDA graph alone provides zero kernel launch overhead without inductor's compilation cost
+
+### Triton 3.6 SM120 CUDA Graph Fix
+
+As of Triton 3.6.0 + CUDA 12.8, the SM120 CUDA graph capture issue with `tl.dot()` scratch space is **resolved**. Earlier Triton versions allocated scratch memory at addresses that differed between capture and replay on SM12x. This is no longer an issue — our test suite confirms all three kernel types (simple dot, TQ4-style decompress+dot, and the full attention kernel) capture and replay correctly.
 
 ## Quick Start
 
@@ -112,7 +124,7 @@ All settings via environment variables with `TRINITY_TURBO_` prefix:
 - Python >= 3.12
 - CUDA >= 12.8 (SM120 Blackwell optimized)
 - PyTorch >= 2.10
-- Triton >= 3.0
+- Triton >= 3.6 (required for SM120 CUDA graph support)
 
 ## Project Structure
 
@@ -144,18 +156,38 @@ benchmarks/
   profile_overhead.py               Per-component profiling
 ```
 
+## Optimization Journey
+
+```
+Phase 2+:  0.2 tok/s    fused kernel (structural defeat)
+Phase 3:   9.7 tok/s    unified tiled attention              x49
+Phase 3+:  46.2          + CUDA graph                        x4.8
+Phase 3a:  64.6          + fast WHT (double-buffer)           x1.4
+Phase 3d: 104.7          + CUDA native compress/rotate        x1.6
+Phase 3e: 2926.8 @64     + high-concurrency serving          (FP8 2.55x)
+Phase 4a: 3432.4 @64     + no torch.compile + graph only     (FP8 2.99x)
+──────────────────────────────────────────────────────────────
+Total: 0.2 → 3432.4 = 17,162x improvement
+```
+
 ## Roadmap
 
 - [x] Phase 1 — TurboQuant core + vLLM plugin skeleton
 - [x] Phase 2 — Compressed KV cache + Triton decompress (35x concurrency)
 - [x] Phase 2+ — Fused Triton decode attention + CUDA graph
 - [x] Phase 3 — Tiled unified attention + CUDA native compress/rotate (104.7 tok/s)
-- [ ] Phase 4 — WHT as matrix-vector multiply (full Triton, no CUDA native)
-- [ ] Phase 5 — Gate-based eviction + cross-layer reconstruction
+- [x] Phase 3e — High-concurrency serving (2927 tok/s @64, FP8 2.55x)
+- [x] Phase 4a — Hybrid strategy: no torch.compile + CUDA graph only (3432 tok/s @64, FP8 2.99x)
+- [ ] Phase 5 — Compute density: speculative decoding, dynamic KV re-quantization
+
+## SM120 (Blackwell) Lessons Learned
+
+See [docs/SM120_LESSONS.md](docs/SM120_LESSONS.md) for detailed findings on optimizing Triton + CUDA kernels for RTX PRO 6000 Blackwell.
 
 ## References
 
 - [TurboQuant: Extreme KV Cache Quantization (ICLR 2026)](https://arxiv.org/abs/2504.19874)
+- [HadaCore: Tensor Core Accelerated Hadamard Transform (Meta, arXiv:2412.08832)](https://arxiv.org/abs/2412.08832)
 - [vLLM](https://github.com/vllm-project/vllm)
 - [mitkox/vllm-turboquant](https://github.com/mitkox/vllm-turboquant)
 
