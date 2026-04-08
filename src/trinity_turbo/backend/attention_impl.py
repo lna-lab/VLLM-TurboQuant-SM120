@@ -32,13 +32,17 @@ from trinity_turbo.kernels.triton_compress import (
     SLOT_BYTES,
     compress_to_slot,
 )
-from trinity_turbo.kernels.cuda_compress_wrapper import fused_compress_scatter
+from trinity_turbo.kernels.cuda_compress_wrapper import (
+    fused_compress_scatter,
+    _ensure_slot_mapping_buf,
+)
 from trinity_turbo.kernels.triton_tq4_unified_attention import (
     tq4_unified_attention,
 )
 from trinity_turbo.kernels.cuda_rotation_wrapper import (
     cuda_apply_rotation,
     cuda_apply_inverse_rotation,
+    _ensure_bufs as _ensure_rotation_bufs,
 )
 from trinity_turbo.quant.turboquant import QuantState
 
@@ -67,6 +71,10 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
         self.kv_cache_dtype = "auto"
         self._inv_sqrt_d = 1.0 / math.sqrt(self.quant_state.normal_dim)
 
+        # Pre-allocate all buffers for CUDA graph compatibility
+        _ensure_slot_mapping_buf(torch.device("cuda"))
+        _ensure_rotation_bufs(self.quant_state.normal_dim, torch.device("cuda"))
+
         if not hasattr(TrinityTurboAttentionImpl, "_logged"):
             logger.info(
                 "TrinityTurboAttentionImpl Phase 3 (tiled unified): "
@@ -78,7 +86,7 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
             TrinityTurboAttentionImpl._logged = True
 
     # ------------------------------------------------------------------
-    # KV cache write: compress to TQ4 slots (unchanged from Phase 2+)
+    # KV cache write: CUDA native fused compress + scatter
     # ------------------------------------------------------------------
 
     def do_kv_cache_update(self, layer, key, value, kv_cache, slot_mapping):
@@ -87,7 +95,6 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
 
         kv_u8 = kv_cache.view(torch.uint8)
 
-        # CUDA fused compress + scatter
         fused_compress_scatter(key, kv_u8, self.quant_state, slot_mapping, kv_dim=0)
         fused_compress_scatter(value, kv_u8, self.quant_state, slot_mapping, kv_dim=1)
 
@@ -127,7 +134,7 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
         key_cache = kv_u8[:, 0, :, :, :]   # (num_blocks, block_size, num_kv_heads, slot_bytes)
         value_cache = kv_u8[:, 1, :, :, :]
 
-        # --- Pre-rotate Q ---
+        # --- Pre-rotate Q (CUDA native WHT) ---
         q = query[:num_actual_tokens].to(torch.bfloat16)
         q_normal = q[..., st.num_outliers:].float()
         q[..., st.num_outliers:] = cuda_apply_rotation(
@@ -153,7 +160,7 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
             norm_off=NORM_OFFSET,
         )
 
-        # --- Inverse-rotate output normal channels ---
+        # --- Inverse-rotate output normal channels (CUDA native WHT) ---
         out_normal = out_slice[..., st.num_outliers:].float()
         out_inv = cuda_apply_inverse_rotation(out_normal, st.sign_flips)
         out_slice[..., st.num_outliers:] = out_inv.to(out_slice.dtype)

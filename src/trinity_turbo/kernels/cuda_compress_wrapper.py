@@ -1,6 +1,7 @@
 """Python wrapper for CUDA native fused compress + scatter kernel.
 
 JIT-compiles on first import. Subsequent imports use cached .so.
+Pre-allocates all buffers for CUDA graph compatibility.
 """
 
 from __future__ import annotations
@@ -35,7 +36,16 @@ def _get_module():
     return _module
 
 
+# Pre-allocated buffer for int64→int32 conversion (CUDA graph safe)
+_MAX_TOKENS = 8192  # covers all vLLM CUDA graph capture sizes
 _slot_mapping_i32: torch.Tensor | None = None
+
+
+def _ensure_slot_mapping_buf(device: torch.device) -> None:
+    """Pre-allocate slot_mapping buffer once. Must be called before graph capture."""
+    global _slot_mapping_i32
+    if _slot_mapping_i32 is None or _slot_mapping_i32.device != device:
+        _slot_mapping_i32 = torch.empty(_MAX_TOKENS, dtype=torch.int32, device=device)
 
 
 def fused_compress_scatter(
@@ -49,13 +59,11 @@ def fused_compress_scatter(
     global _slot_mapping_i32
     mod = _get_module()
 
-    # Convert int64→int32 using pre-allocated buffer (CUDA graph safe)
+    # Convert int64→int32 using pre-allocated buffer (no reallocation)
+    _ensure_slot_mapping_buf(slot_mapping.device)
     if slot_mapping.dtype != torch.int32:
-        if _slot_mapping_i32 is None or _slot_mapping_i32.shape[0] < slot_mapping.shape[0]:
-            _slot_mapping_i32 = torch.empty(
-                max(slot_mapping.shape[0], 512), dtype=torch.int32, device=slot_mapping.device,
-            )
-        sm = _slot_mapping_i32[:slot_mapping.shape[0]]
+        n = slot_mapping.shape[0]
+        sm = _slot_mapping_i32[:n]
         sm.copy_(slot_mapping)
     else:
         sm = slot_mapping

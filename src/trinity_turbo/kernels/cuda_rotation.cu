@@ -2,6 +2,8 @@
 // Uses __syncthreads() for warp-safe butterfly.
 // 1 thread block = 128 threads = 1 vector (token × head).
 // Processes normal channels only (indices num_outliers..head_dim-1).
+//
+// CUDA graph safe: accepts pre-allocated output buffer (no allocation inside).
 
 #include <torch/extension.h>
 #include <cuda.h>
@@ -59,9 +61,36 @@ __global__ void fused_rotation_kernel(
     }
 }
 
-torch::Tensor cuda_apply_rotation(
-    torch::Tensor input,          // (N, dim) float32
+// Version that accepts pre-allocated output (CUDA graph safe)
+void cuda_apply_rotation_inplace(
+    torch::Tensor input,          // (N, dim) float32, contiguous
+    torch::Tensor output,         // (N, dim) float32, contiguous, pre-allocated
     torch::Tensor sign_flips,     // (PADDED_DIM,) float32
+    bool is_inverse
+) {
+    TORCH_CHECK(input.is_cuda() && input.is_contiguous());
+    TORCH_CHECK(output.is_cuda() && output.is_contiguous());
+    TORCH_CHECK(sign_flips.is_cuda());
+    TORCH_CHECK(input.sizes() == output.sizes());
+
+    int N = input.size(0);
+    int dim = input.size(1);
+
+    if (N == 0) return;
+
+    fused_rotation_kernel<<<N, PADDED_DIM>>>(
+        input.data_ptr<float>(),
+        output.data_ptr<float>(),
+        sign_flips.data_ptr<float>(),
+        dim,
+        is_inverse ? 1 : 0
+    );
+}
+
+// Legacy version that allocates output (NOT graph safe, kept for tests)
+torch::Tensor cuda_apply_rotation(
+    torch::Tensor input,
+    torch::Tensor sign_flips,
     bool is_inverse
 ) {
     TORCH_CHECK(input.is_cuda() && input.is_contiguous());
@@ -86,5 +115,6 @@ torch::Tensor cuda_apply_rotation(
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("cuda_apply_rotation", &cuda_apply_rotation, "CUDA fused WHT rotation");
+    m.def("cuda_apply_rotation", &cuda_apply_rotation, "CUDA fused WHT rotation (allocating)");
+    m.def("cuda_apply_rotation_inplace", &cuda_apply_rotation_inplace, "CUDA fused WHT rotation (pre-allocated output)");
 }
