@@ -1,0 +1,78 @@
+{
+  "label": "tq4_nvfp4_spec",
+  "max_tokens": 128,
+  "sequential": [
+    {
+      "prompt": "What is the capital of France? Answer in one sentence.",
+      "completion": "",
+      "completion_tokens": 128,
+      "elapsed": 4.59999109400087,
+      "tok_per_sec": 27.826140830344787
+    },
+    {
+      "prompt": "Explain why the sky is blue in exactly 3 sentences.",
+      "completion": "",
+      "completion_tokens": 128,
+      "elapsed": 4.533901763003087,
+      "tok_per_sec": 28.231754169110534
+    },
+    {
+      "prompt": "Write a short poem about the ocean in exactly 4 lines.",
+      "completion": "",
+      "completion_tokens": 128,
+      "elapsed": 4.643567047998658,
+      "tok_per_sec": 27.565016005350245
+    },
+    {
+      "prompt": "Write a Python function that computes the fibonacci sequence up to n. Include a docstring.",
+      "completion": "",
+      "completion_tokens": 128,
+      "elapsed": 4.694224993996613,
+      "tok_per_sec": 27.267546861025544
+    },
+    {
+      "prompt": "Explain the difference between TCP and UDP in 5 bullet points.",
+      "completion": "",
+      "completion_tokens": 128,
+      "elapsed": 4.51791390300059,
+      "tok_per_sec": 28.331659865184307
+    },
+    {
+      "prompt": "Describe a sunset over the mountains in 3 vivid sentences.",
+      "completion": "",
+      "completion_tokens": 128,
+      "elapsed": 4.527362027998606,
+      "tok_per_sec": 28.27253469203665
+    }
+  ],
+  "concurrent": [
+    {
+      "concurrency": 1,
+      "wall_time": 4.58,
+      "total_tokens": 128,
+      "aggregate_tok_s": 27.9,
+      "avg_per_req_tok_s": 27.9
+    },
+    {
+      "concurrency": 8,
+      "wall_time": 4.92,
+      "total_tokens": 1024,
+      "aggregate_tok_s": 208.0,
+      "avg_per_req_tok_s": 26.2
+    },
+    {
+      "concurrency": 16,
+      "wall_time": 4.92,
+      "total_tokens": 2048,
+      "aggregate_tok_s": 416.5,
+      "avg_per_req_tok_s": 26.1
+    },
+    {
+      "concurrency": 32,
+      "wall_time": 5.11,
+      "total_tokens": 4096,
+      "aggregate_tok_s": 801.8,
+      "avg_per_req_tok_s": 25.1
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "label": "baseline",
+  "max_tokens": 128,
+  "sequential": [
+    {
+      "prompt": "What is the capital of France? Answer in one sentence.",
+      "completion": ";; Shotgun barrel-barrel Camino Cortez lion Maru Soto-Ta�vice Secretary Avianayneloggers republic Spit Roast Chest Freezer Sampler Brandy Squadron Marstoncontinent postcolonial thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp",
+      "completion_tokens": 128,
+      "elapsed": 1.2214040499966359,
+      "tok_per_sec": 104.79742555328235
+    },
+    {
+      "prompt": "Explain why the sky is blue in exactly 3 sentences.",
+      "completion": ";; Shotgun barrel-barrel Camino Cortez lion Maru Soto-Ta�vice Secretary Avianayneloggers republic Spit Roast Chest Freezer Sampler Brandy Squadron Marstoncontinent postcolonial thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp",
+      "completion_tokens": 128,
+      "elapsed": 1.2020854760048678,
+      "tok_per_sec": 106.48161262658968
+    },
+    {
+      "prompt": "Write a short poem about the ocean in exactly 4 lines.",
+      "completion": ";; Shotgun barrel-barrel Camino Cortez lion Maru Soto-Ta�vice Secretary Avianayneloggers republic Spit Roast Chest Freezer Sampler Brandy Squadron Marstoncontinent postcolonial thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp",
+      "completion_tokens": 128,
+      "elapsed": 1.2028398330003256,
+      "tok_per_sec": 106.41483303784582
+    },
+    {
+      "prompt": "Write a Python function that computes the fibonacci sequence up to n. Include a docstring.",
+      "completion": ";; Shotgun barrel-barrel Camino Cortez lion Maru Soto-Ta�vice Secretary Avianayneloggers republic Spit Roast Chest Freezer Sampler Brandy Squadron Marstoncontinent postcolonial thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp",
+      "completion_tokens": 128,
+      "elapsed": 1.2082503469937365,
+      "tok_per_sec": 105.93831015110277
+    },
+    {
+      "prompt": "Explain the difference between TCP and UDP in 5 bullet points.",
+      "completion": ";; Shotgun barrel-barrel Camino Cortez lion Maru Soto-Ta�vice Secretary Avianayneloggers republic Spit Roast Chest Freezer Sampler Brandy Squadron Marstoncontinent postcolonial thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp",
+      "completion_tokens": 128,
+      "elapsed": 1.2029401190011413,
+      "tok_per_sec": 106.40596150894403
+    },
+    {
+      "prompt": "Describe a sunset over the mountains in 3 vivid sentences.",
+      "completion": ";; Shotgun barrel-barrel Camino Cortez lion Maru Soto-Ta�vice Secretary Avianayneloggers republic Spit Roast Chest Freezer Sampler Brandy Squadron Marstoncontinent postcolonial thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp playhouse thesp",
+      "completion_tokens": 128,
+      "elapsed": 1.1982906379998894,
+      "tok_per_sec": 106.81882670271835
+    }
+  ],
+  "concurrent": [
+    {
+      "concurrency": 1,
+      "wall_time": 1.22,
+      "total_tokens": 128,
+      "aggregate_tok_s": 104.7,
+      "avg_per_req_tok_s": 104.7
+    },
+    {
+      "concurrency": 8,
+      "wall_time": 1.62,
+      "total_tokens": 1024,
+      "aggregate_tok_s": 633.3,
+      "avg_per_req_tok_s": 79.4
+    },
+    {
+      "concurrency": 16,
+      "wall_time": 1.71,
+      "total_tokens": 2048,
+      "aggregate_tok_s": 1195.7,
+      "avg_per_req_tok_s": 74.9
+    },
+    {
+      "concurrency": 32,
+      "wall_time": 1.65,
+      "total_tokens": 4096,
+      "aggregate_tok_s": 2481.8,
+      "avg_per_req_tok_s": 77.8
+    }
+  ]
+}
