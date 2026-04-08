@@ -1,0 +1,132 @@
+{
+  "label": "tq4_128k_x24",
+  "model": "/media/tonoken/CT4000/Models/arcee-ai/Trinity-Large-Thinking-W4A16",
+  "target_context_tokens": 128000,
+  "concurrency": 24,
+  "max_tokens": 131072,
+  "wall_time": 3600.84,
+  "num_ok": 0,
+  "num_errors": 24,
+  "results": [
+    {
+      "id": 0,
+      "error": "",
+      "elapsed": 3600.837998422
+    },
+    {
+      "id": 1,
+      "error": "",
+      "elapsed": 3600.8374406930006
+    },
+    {
+      "id": 2,
+      "error": "",
+      "elapsed": 3600.836676982999
+    },
+    {
+      "id": 3,
+      "error": "",
+      "elapsed": 3600.835961194999
+    },
+    {
+      "id": 4,
+      "error": "",
+      "elapsed": 3600.8346625289996
+    },
+    {
+      "id": 5,
+      "error": "",
+      "elapsed": 3600.8341486949994
+    },
+    {
+      "id": 6,
+      "error": "",
+      "elapsed": 3600.8333654869994
+    },
+    {
+      "id": 7,
+      "error": "",
+      "elapsed": 3600.832623508999
+    },
+    {
+      "id": 8,
+      "error": "",
+      "elapsed": 3600.831870225
+    },
+    {
+      "id": 9,
+      "error": "",
+      "elapsed": 3600.831114447001
+    },
+    {
+      "id": 10,
+      "error": "",
+      "elapsed": 3600.829859807999
+    },
+    {
+      "id": 11,
+      "error": "",
+      "elapsed": 3600.8289978190005
+    },
+    {
+      "id": 12,
+      "error": "",
+      "elapsed": 3600.8280448640007
+    },
+    {
+      "id": 13,
+      "error": "",
+      "elapsed": 3600.827528506
+    },
+    {
+      "id": 14,
+      "error": "",
+      "elapsed": 3600.8267473799997
+    },
+    {
+      "id": 15,
+      "error": "",
+      "elapsed": 3600.8260017170005
+    },
+    {
+      "id": 16,
+      "error": "",
+      "elapsed": 3600.8252268310007
+    },
+    {
+      "id": 17,
+      "error": "",
+      "elapsed": 3600.8243934660004
+    },
+    {
+      "id": 18,
+      "error": "",
+      "elapsed": 3600.8236009929997
+    },
+    {
+      "id": 19,
+      "error": "",
+      "elapsed": 3600.822848259001
+    },
+    {
+      "id": 20,
+      "error": "",
+      "elapsed": 3600.8220645389993
+    },
+    {
+      "id": 21,
+      "error": "",
+      "elapsed": 3600.8212288309996
+    },
+    {
+      "id": 22,
+      "error": "",
+      "elapsed": 3600.820556849001
+    },
+    {
+      "id": 23,
+      "error": "",
+      "elapsed": 3600.819788842001
+    }
+  ]
+}

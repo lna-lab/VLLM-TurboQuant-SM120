@@ -1,0 +1,80 @@
+{
+  "label": "tq4_eager_high_concurrency",
+  "model": "/media/tonoken/CT4000/Models/arcee-ai/Trinity-Large-Thinking-W4A16",
+  "url": "http://localhost:8014/v1/chat/completions",
+  "max_tokens": 512,
+  "results": [
+    {
+      "concurrency": 1,
+      "wall_time_s": 19.36,
+      "total_tokens": 512,
+      "throughput_tok_s": 26.5,
+      "per_request_avg_tok_s": 26.5,
+      "per_request_min_tok_s": 26.5,
+      "per_request_max_tok_s": 26.5
+    },
+    {
+      "concurrency": 4,
+      "wall_time_s": 19.79,
+      "total_tokens": 2048,
+      "throughput_tok_s": 103.5,
+      "per_request_avg_tok_s": 25.9,
+      "per_request_min_tok_s": 25.9,
+      "per_request_max_tok_s": 26.0
+    },
+    {
+      "concurrency": 8,
+      "wall_time_s": 19.75,
+      "total_tokens": 4096,
+      "throughput_tok_s": 207.3,
+      "per_request_avg_tok_s": 25.9,
+      "per_request_min_tok_s": 25.9,
+      "per_request_max_tok_s": 26.0
+    },
+    {
+      "concurrency": 16,
+      "wall_time_s": 20.01,
+      "total_tokens": 8192,
+      "throughput_tok_s": 409.4,
+      "per_request_avg_tok_s": 25.6,
+      "per_request_min_tok_s": 25.6,
+      "per_request_max_tok_s": 25.7
+    },
+    {
+      "concurrency": 20,
+      "wall_time_s": 20.22,
+      "total_tokens": 10240,
+      "throughput_tok_s": 506.5,
+      "per_request_avg_tok_s": 25.3,
+      "per_request_min_tok_s": 25.3,
+      "per_request_max_tok_s": 25.4
+    },
+    {
+      "concurrency": 24,
+      "wall_time_s": 20.21,
+      "total_tokens": 12288,
+      "throughput_tok_s": 608.0,
+      "per_request_avg_tok_s": 25.3,
+      "per_request_min_tok_s": 25.3,
+      "per_request_max_tok_s": 25.4
+    },
+    {
+      "concurrency": 28,
+      "wall_time_s": 20.72,
+      "total_tokens": 14336,
+      "throughput_tok_s": 691.8,
+      "per_request_avg_tok_s": 24.7,
+      "per_request_min_tok_s": 24.7,
+      "per_request_max_tok_s": 24.8
+    },
+    {
+      "concurrency": 32,
+      "wall_time_s": 20.76,
+      "total_tokens": 16384,
+      "throughput_tok_s": 789.0,
+      "per_request_avg_tok_s": 24.7,
+      "per_request_min_tok_s": 24.7,
+      "per_request_max_tok_s": 24.7
+    }
+  ]
+}
