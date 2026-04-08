@@ -1,13 +1,14 @@
-"""TrinityTurbo attention — Phase 4b: HadaCore Tensor Core WHT.
+"""TrinityTurbo attention — Phase 4a: hybrid (CUDA native graph + Triton eager).
 
-Meta's HadaCore replaces both CUDA native butterfly and Triton mat-vec WHT.
-0.003ms per rotation (78x faster than our CUDA native, 30x faster than PyTorch).
-CUDA native → CUDA graph compatible. No Triton SM120 issues.
+Triton on SM120 Blackwell has CUDA graph capture issues (illegal memory access).
+SGLang #19799 confirms this is a known Triton/SM12x ecosystem issue.
 
-Phase 4b:
-  - compress: CUDA native fused (Phase 3e, graph proven)
-  - rotation: HadaCore TC WHT (0.003ms, graph compatible)
-  - attention: Triton TQ4 unified (Phase 3, graph proven)
+Phase 4a hybrid strategy:
+  - compress: CUDA native (Phase 3e, CUDA graph proven)
+  - rotation: CUDA native for graph capture, Triton mat-vec for eager rotation
+  - attention: Triton (Phase 3, CUDA graph proven)
+
+When Triton SM120 support matures → Phase 4b: all-Triton.
 """
 
 from __future__ import annotations
@@ -36,9 +37,9 @@ from trinity_turbo.kernels.cuda_compress_wrapper import (
 from trinity_turbo.kernels.triton_tq4_unified_attention import (
     tq4_unified_attention,
 )
-from trinity_turbo.kernels.hadacore_wrapper import (
-    hadacore_apply_rotation,
-    hadacore_apply_inverse_rotation,
+from trinity_turbo.kernels.cuda_rotation_wrapper import (
+    cuda_apply_rotation,
+    cuda_apply_inverse_rotation,
     _ensure_bufs as _ensure_rotation_bufs,
 )
 from trinity_turbo.quant.turboquant import QuantState
@@ -47,10 +48,10 @@ logger = logging.getLogger(__name__)
 
 
 class TrinityTurboAttentionImpl(TritonAttentionImpl):
-    """Phase 4b: HadaCore TC WHT + CUDA native compress + Triton attention.
+    """Phase 4a: hybrid CUDA native (graph) + Triton (eager).
 
-    HadaCore: 0.003ms per WHT rotation (Meta Tensor Core kernel).
-    CUDA graph compatible across all components.
+    CUDA native compress + rotation for CUDA graph compatibility.
+    Triton TQ4 attention (proven graph-safe since Phase 3).
     """
 
     def __init__(self, *args, **kwargs):
@@ -68,12 +69,11 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
 
         # Pre-allocate all buffers for CUDA graph compatibility
         _ensure_slot_mapping_buf(torch.device("cuda"))
-        padded_dim = self.quant_state.sign_flips.shape[0]
-        _ensure_rotation_bufs(self.quant_state.normal_dim, padded_dim, torch.device("cuda"))
+        _ensure_rotation_bufs(self.quant_state.normal_dim, torch.device("cuda"))
 
         if not hasattr(TrinityTurboAttentionImpl, "_logged"):
             logger.info(
-                "TrinityTurboAttentionImpl Phase 4b (HadaCore TC WHT + Triton attn): "
+                "TrinityTurboAttentionImpl Phase 4a (hybrid: CUDA native graph + Triton attn): "
                 "heads=%d, kv_heads=%d, head_size=%d, bits=%d, "
                 "slot_bytes=%d, outliers=%d",
                 self.num_heads, self.num_kv_heads, self.head_size,
@@ -129,10 +129,10 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
         key_cache = kv_u8[:, 0, :, :, :]
         value_cache = kv_u8[:, 1, :, :, :]
 
-        # --- Pre-rotate Q (HadaCore TC WHT, 0.003ms) ---
+        # --- Pre-rotate Q (CUDA native WHT, graph-safe) ---
         q = query[:num_actual_tokens].to(torch.bfloat16)
         q_normal = q[..., st.num_outliers:].float()
-        q[..., st.num_outliers:] = hadacore_apply_rotation(
+        q[..., st.num_outliers:] = cuda_apply_rotation(
             q_normal, st.sign_flips,
         ).to(torch.bfloat16)
 
@@ -155,9 +155,9 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
             norm_off=NORM_OFFSET,
         )
 
-        # --- Inverse-rotate output (HadaCore TC WHT, 0.003ms) ---
+        # --- Inverse-rotate output (CUDA native WHT, graph-safe) ---
         out_normal = out_slice[..., st.num_outliers:].float()
-        out_inv = hadacore_apply_inverse_rotation(out_normal, st.sign_flips)
+        out_inv = cuda_apply_inverse_rotation(out_normal, st.sign_flips)
         out_slice[..., st.num_outliers:] = out_inv.to(out_slice.dtype)
 
         return output

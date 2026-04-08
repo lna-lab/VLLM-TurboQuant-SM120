@@ -1,14 +1,10 @@
-"""HadaCore Tensor Core WHT wrapper for TurboQuant Phase 4b.
+"""HadaCore Tensor Core WHT wrapper — Phase 4b optimized.
 
-Meta's HadaCore: CUDA native Tensor Core accelerated Hadamard Transform.
-0.003ms for 480 vectors (78x faster than our CUDA native butterfly).
-CUDA graph compatible (native CUDA, no Triton SM120 issues).
-
-arXiv: 2412.08832
-Source: pytorch-labs/applied-ai
-
-API: hadamard_transform(x, inplace=False) → WHT of x along last dim.
-Input must be bf16 or fp16, last dim must be power of 2.
+Stripped all conversion overhead:
+- sign_flips pre-converted to bf16 at init
+- inplace=True for zero-copy WHT
+- No zero_(), no intermediate float() conversions
+- Pre-allocated padded buffer reused across calls
 """
 
 from __future__ import annotations
@@ -20,12 +16,13 @@ import torch
 
 _module = None
 
-# Pre-allocated buffers for CUDA graph safety
+# Pre-allocated buffers (CUDA graph safe)
 _MAX_VECS = 8192 * 32
-_rot_input_buf: torch.Tensor | None = None
-_rot_output_buf: torch.Tensor | None = None
-_signs_buf: torch.Tensor | None = None
+_rot_buf: torch.Tensor | None = None
+_signs_bf16: torch.Tensor | None = None
+_inv_sqrt_padded: float = 0.0
 _normal_dim: int = 0
+_padded_dim: int = 0
 
 
 def _get_module():
@@ -55,73 +52,67 @@ def _get_module():
     return _module
 
 
-def _ensure_bufs(dim: int, padded_dim: int, device: torch.device) -> None:
-    global _rot_input_buf, _rot_output_buf, _signs_buf, _normal_dim
-    if (_rot_input_buf is None or _rot_input_buf.device != device
-            or _normal_dim != dim):
-        _rot_input_buf = torch.empty(_MAX_VECS, padded_dim, dtype=torch.bfloat16, device=device)
-        _rot_output_buf = torch.empty(_MAX_VECS, padded_dim, dtype=torch.bfloat16, device=device)
+def _ensure_bufs(dim: int, padded_dim: int, sign_flips: torch.Tensor, device: torch.device) -> None:
+    """One-time init: pre-allocate buffer + pre-convert signs to bf16."""
+    global _rot_buf, _signs_bf16, _inv_sqrt_padded, _normal_dim, _padded_dim
+    if _rot_buf is None or _rot_buf.device != device or _normal_dim != dim:
+        _rot_buf = torch.zeros(_MAX_VECS, padded_dim, dtype=torch.bfloat16, device=device)
+        # Pre-convert sign_flips to bf16 (never changes after init)
+        full_signs = torch.ones(padded_dim, dtype=torch.bfloat16, device=device)
+        full_signs[:dim] = sign_flips[:dim].to(torch.bfloat16)
+        _signs_bf16 = full_signs
+        _inv_sqrt_padded = 1.0 / math.sqrt(padded_dim)
         _normal_dim = dim
+        _padded_dim = padded_dim
 
 
 def hadacore_apply_rotation(
     x: torch.Tensor,
     sign_flips: torch.Tensor,
 ) -> torch.Tensor:
-    """Apply forward WHT rotation: y = WHT(diag(signs) * x) / sqrt(d).
-
-    Uses HadaCore Tensor Core kernel. CUDA graph safe.
-    """
+    """Forward WHT: y = WHT(diag(signs) * x) / sqrt(d). Zero-overhead wrapper."""
     mod = _get_module()
     orig_shape = x.shape
     dim = x.shape[-1]
     padded_dim = sign_flips.shape[0]
 
-    _ensure_bufs(dim, padded_dim, x.device)
+    _ensure_bufs(dim, padded_dim, sign_flips, x.device)
 
     flat = x.reshape(-1, dim)
     N = flat.shape[0]
 
-    # Copy to pre-allocated buffer, pad, apply signs, convert to bf16
-    inp = _rot_input_buf[:N]
-    inp.zero_()
-    inp[:, :dim] = flat.to(torch.bfloat16) * sign_flips[:dim].to(torch.bfloat16)
+    # Direct bf16 write with signs — no zero_(), no intermediate copies
+    buf = _rot_buf[:N]
+    buf[:, dim:] = 0  # Only zero the padding region (8 elements, not 128)
+    buf[:, :dim] = flat.to(torch.bfloat16) * _signs_bf16[:dim]
 
-    # HadaCore WHT (in-place capable, bf16)
-    out = mod.hadamard_transform(inp, False)
+    # HadaCore WHT inplace — zero allocation
+    mod.hadamard_transform(buf, True)
 
-    # Normalize by 1/sqrt(padded_dim) and truncate to dim
-    out = out[:, :dim] * (1.0 / math.sqrt(padded_dim))
-
-    return out.float().reshape(orig_shape)
+    # Extract, normalize, return as float32
+    return (buf[:, :dim].float() * _inv_sqrt_padded).reshape(orig_shape)
 
 
 def hadacore_apply_inverse_rotation(
     x: torch.Tensor,
     sign_flips: torch.Tensor,
 ) -> torch.Tensor:
-    """Apply inverse WHT rotation: y = diag(signs) * WHT(x) / sqrt(d).
-
-    Inverse: first WHT, then multiply by signs.
-    """
+    """Inverse WHT: y = diag(signs) * WHT(x) / sqrt(d). Zero-overhead wrapper."""
     mod = _get_module()
     orig_shape = x.shape
     dim = x.shape[-1]
     padded_dim = sign_flips.shape[0]
 
-    _ensure_bufs(dim, padded_dim, x.device)
+    _ensure_bufs(dim, padded_dim, sign_flips, x.device)
 
     flat = x.reshape(-1, dim)
     N = flat.shape[0]
 
-    inp = _rot_input_buf[:N]
-    inp.zero_()
-    inp[:, :dim] = flat.to(torch.bfloat16)
+    buf = _rot_buf[:N]
+    buf[:, dim:] = 0
+    buf[:, :dim] = flat.to(torch.bfloat16)
 
-    out = mod.hadamard_transform(inp, False)
+    mod.hadamard_transform(buf, True)
 
-    # Normalize, apply signs, truncate
-    out_f32 = out[:, :dim].float() * (1.0 / math.sqrt(padded_dim))
-    out_f32 = out_f32 * sign_flips[:dim]
-
-    return out_f32.reshape(orig_shape)
+    # Normalize + apply signs
+    return (buf[:, :dim].float() * _inv_sqrt_padded * sign_flips[:dim]).reshape(orig_shape)
