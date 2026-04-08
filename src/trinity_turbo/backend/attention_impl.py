@@ -1,14 +1,14 @@
-"""TrinityTurbo attention implementation — Phase 4: all-Triton, no CUDA JIT.
+"""TrinityTurbo attention — Phase 4a: hybrid (CUDA native graph + Triton eager).
 
-Phase 4 replaces all CUDA native kernels with pure Triton:
-  - compress: triton_fused_compress_v2 (WHT mat-vec + quantize + pack + scatter)
-  - rotation: triton_hadamard (WHT as matrix-vector multiply via tl.dot)
-  - attention: triton_tq4_unified_attention (unchanged from Phase 3)
+Triton on SM120 Blackwell has CUDA graph capture issues (illegal memory access).
+SGLang #19799 confirms this is a known Triton/SM12x ecosystem issue.
 
-Benefits over Phase 3:
-  - No CUDA JIT compilation → reboot-safe, no race conditions
-  - WHT via Tensor Core mat-vec → faster on Blackwell
-  - Single Triton kernel for compress + scatter → fewer kernel launches
+Phase 4a hybrid strategy:
+  - compress: CUDA native (Phase 3e, CUDA graph proven)
+  - rotation: CUDA native for graph capture, Triton mat-vec for eager rotation
+  - attention: Triton (Phase 3, CUDA graph proven)
+
+When Triton SM120 support matures → Phase 4b: all-Triton.
 """
 
 from __future__ import annotations
@@ -30,20 +30,17 @@ from trinity_turbo.kernels.triton_compress import (
     PACKED_OFFSET,
     SLOT_BYTES,
 )
-from trinity_turbo.kernels.triton_fused_compress_v2 import (
-    triton_fused_compress_scatter,
+from trinity_turbo.kernels.cuda_compress_wrapper import (
+    fused_compress_scatter,
+    _ensure_slot_mapping_buf,
 )
 from trinity_turbo.kernels.triton_tq4_unified_attention import (
     tq4_unified_attention,
 )
-from trinity_turbo.kernels.triton_hadamard import (
-    build_signed_hadamard,
-    triton_apply_rotation,
-    triton_apply_inverse_rotation,
+from trinity_turbo.kernels.cuda_rotation_wrapper import (
+    cuda_apply_rotation,
+    cuda_apply_inverse_rotation,
     _ensure_bufs as _ensure_rotation_bufs,
-)
-from trinity_turbo.kernels.triton_fused_compress_v2 import (
-    _ensure_slot_buf,
 )
 from trinity_turbo.quant.turboquant import QuantState
 
@@ -51,9 +48,10 @@ logger = logging.getLogger(__name__)
 
 
 class TrinityTurboAttentionImpl(TritonAttentionImpl):
-    """Phase 4: all-Triton attention with mat-vec WHT.
+    """Phase 4a: hybrid CUDA native (graph) + Triton (eager).
 
-    No CUDA native JIT required. Reboot-safe.
+    CUDA native compress + rotation for CUDA graph compatibility.
+    Triton TQ4 attention (proven graph-safe since Phase 3).
     """
 
     def __init__(self, *args, **kwargs):
@@ -69,18 +67,13 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
         self.kv_cache_dtype = "auto"
         self._inv_sqrt_d = 1.0 / math.sqrt(self.quant_state.normal_dim)
 
-        # Build pre-signed Hadamard matrices (once at init)
-        self.H_fwd, self.H_inv = build_signed_hadamard(
-            self.quant_state.sign_flips, torch.device("cuda"),
-        )
-
-        # Pre-allocate buffers for CUDA graph compatibility
-        _ensure_slot_buf(torch.device("cuda"))
+        # Pre-allocate all buffers for CUDA graph compatibility
+        _ensure_slot_mapping_buf(torch.device("cuda"))
         _ensure_rotation_bufs(self.quant_state.normal_dim, torch.device("cuda"))
 
         if not hasattr(TrinityTurboAttentionImpl, "_logged"):
             logger.info(
-                "TrinityTurboAttentionImpl Phase 4 (all-Triton, mat-vec WHT): "
+                "TrinityTurboAttentionImpl Phase 4a (hybrid: CUDA native graph + Triton attn): "
                 "heads=%d, kv_heads=%d, head_size=%d, bits=%d, "
                 "slot_bytes=%d, outliers=%d",
                 self.num_heads, self.num_kv_heads, self.head_size,
@@ -89,7 +82,7 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
             TrinityTurboAttentionImpl._logged = True
 
     # ------------------------------------------------------------------
-    # KV cache write: Triton fused compress + scatter (Phase 4)
+    # KV cache write: CUDA native fused compress + scatter (graph-safe)
     # ------------------------------------------------------------------
 
     def do_kv_cache_update(self, layer, key, value, kv_cache, slot_mapping):
@@ -98,15 +91,11 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
 
         kv_u8 = kv_cache.view(torch.uint8)
 
-        triton_fused_compress_scatter(
-            key, kv_u8, self.quant_state, self.H_fwd, slot_mapping, kv_dim=0,
-        )
-        triton_fused_compress_scatter(
-            value, kv_u8, self.quant_state, self.H_fwd, slot_mapping, kv_dim=1,
-        )
+        fused_compress_scatter(key, kv_u8, self.quant_state, slot_mapping, kv_dim=0)
+        fused_compress_scatter(value, kv_u8, self.quant_state, slot_mapping, kv_dim=1)
 
     # ------------------------------------------------------------------
-    # Forward: tiled TQ4 unified attention (Phase 4: Triton rotation)
+    # Forward: CUDA native rotation + Triton TQ4 attention (graph-safe)
     # ------------------------------------------------------------------
 
     def forward(
@@ -134,25 +123,18 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
 
         num_actual_tokens = attn_metadata.num_actual_tokens
         st = self.quant_state
-        padded_dim = self.H_fwd.shape[0]
 
         # --- Unbind K/V cache as uint8 ---
         kv_u8 = kv_cache.view(torch.uint8)
         key_cache = kv_u8[:, 0, :, :, :]
         value_cache = kv_u8[:, 1, :, :, :]
 
-        # --- Pre-rotate Q (Triton mat-vec WHT) ---
+        # --- Pre-rotate Q (CUDA native WHT, graph-safe) ---
         q = query[:num_actual_tokens].to(torch.bfloat16)
         q_normal = q[..., st.num_outliers:].float()
-        # Pad to padded_dim for mat-vec
-        if q_normal.shape[-1] < padded_dim:
-            q_padded = torch.nn.functional.pad(
-                q_normal, (0, padded_dim - q_normal.shape[-1]),
-            )
-        else:
-            q_padded = q_normal
-        q_rotated = triton_apply_rotation(q_padded, self.H_fwd)
-        q[..., st.num_outliers:] = q_rotated[..., :st.normal_dim].to(torch.bfloat16)
+        q[..., st.num_outliers:] = cuda_apply_rotation(
+            q_normal, st.sign_flips,
+        ).to(torch.bfloat16)
 
         # --- TQ4 unified attention ---
         out_slice = output[:num_actual_tokens]
@@ -173,15 +155,9 @@ class TrinityTurboAttentionImpl(TritonAttentionImpl):
             norm_off=NORM_OFFSET,
         )
 
-        # --- Inverse-rotate output (Triton mat-vec WHT) ---
+        # --- Inverse-rotate output (CUDA native WHT, graph-safe) ---
         out_normal = out_slice[..., st.num_outliers:].float()
-        if out_normal.shape[-1] < padded_dim:
-            out_padded = torch.nn.functional.pad(
-                out_normal, (0, padded_dim - out_normal.shape[-1]),
-            )
-        else:
-            out_padded = out_normal
-        out_inv = triton_apply_inverse_rotation(out_padded, self.H_inv)
-        out_slice[..., st.num_outliers:] = out_inv[..., :st.normal_dim].to(out_slice.dtype)
+        out_inv = cuda_apply_inverse_rotation(out_normal, st.sign_flips)
+        out_slice[..., st.num_outliers:] = out_inv.to(out_slice.dtype)
 
         return output
